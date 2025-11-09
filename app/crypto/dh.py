@@ -1,22 +1,61 @@
-"""Classic DH helpers + Trunc16(SHA256(Ks)) derivation.""" 
-
+# app/crypto/dh.py
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import dh
 from cryptography.hazmat.backends import default_backend
 from common.utils import sha256
+import os
 
-# Standard 2048-bit DH parameters for the exchange
-DH_PARAMETERS = dh.generate_parameters(generator=2, key_size=2048, backend=default_backend())
+CERT_DIR = "certs"
+DH_PARAMS_FILE = os.path.join(CERT_DIR, "dh_params.pem")
 
-def generate_dh_keypair():
-    """Generates a Diffie-Hellman private and public key."""
-    private_key = DH_PARAMETERS.generate_private_key()
+# --- Load Parameters (CRITICAL: Ensures client and server use the same p and g) ---
+def load_dh_parameters():
+    """Loads the pre-generated DH parameters from the file."""
+    try:
+        with open(DH_PARAMS_FILE, "rb") as f:
+            # Use load_pem_parameters to deserialize the PEM file
+            return serialization.load_pem_parameters(f.read(), backend=default_backend())
+    except FileNotFoundError:
+        print(f"[ERROR] DH parameters not found at {DH_PARAMS_FILE}.")
+        print("Please run 'python scripts/gen_dh_params.py' once before starting the server/client.")
+        exit(1)
+
+# Load parameters globally on import
+DH_PARAMETERS = load_dh_parameters() 
+
+# --- Core DH Functions ---
+def get_dh_params_object() -> dh.DHParameters:
+    """Retrieves the globally loaded DHParameters object."""
+    return DH_PARAMETERS
+
+def get_dh_params() -> tuple[int, int]:
+    """Extracts p and g as integers from the global parameters."""
+    p = DH_PARAMETERS.parameter_numbers().p
+    g = DH_PARAMETERS.parameter_numbers().g
+    return p, g
+
+def generate_dh_keypair_from_params(parameters: dh.DHParameters):
+    """Generates a Diffie-Hellman private and public key using the provided parameters object."""
+    private_key = parameters.generate_private_key()
     public_key = private_key.public_key()
     return private_key, public_key
 
-def derive_shared_secret(private_key: dh.DHPrivateNumbers, peer_public_key: dh.DHPublicNumbers) -> bytes:
-    """Computes the DH shared secret (Ks)."""
+def derive_shared_secret_int(private_key, peer_public_int: int, parameters: dh.DHParameters) -> bytes:
+    """
+    Computes the shared secret (Ks) using a local private key and a peer's 
+    public key provided as an integer (A or B), using the provided parameters object.
+    """
+    # 1. Reconstruct the peer's public key numbers object
+    peer_public_numbers = dh.DHPublicNumbers(
+        peer_public_int,
+        parameters.parameter_numbers()
+    )
+    
+    # 2. FIX: Convert numbers to public key object using .public_key() method
+    peer_public_key = peer_public_numbers.public_key(default_backend())
+    
+    # 3. Compute the shared secret Ks
     return private_key.exchange(peer_public_key)
 
 def kdf_derive_aes_key(shared_secret: bytes) -> bytes:
@@ -24,29 +63,7 @@ def kdf_derive_aes_key(shared_secret: bytes) -> bytes:
     Derives the 16-byte AES-128 key K from the DH shared secret Ks.
     K = Trunc16(SHA256(big-endian(Ks)))
     """
-    ks_bytes = shared_secret
-    
-    # 1. Compute SHA256(Ks)
-    full_hash = sha256(ks_bytes) # 32 bytes
-    
-    # 2. Truncate to 16 bytes for AES-128 key
+    full_hash = sha256(shared_secret) # 32 bytes
     aes_key = full_hash[:16]
     
     return aes_key
-
-def serialize_public_key(public_key) -> bytes:
-    """Serializes a DH public key for transmission."""
-    return public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-
-def deserialize_public_key(pem_data: bytes):
-    """Deserializes a DH public key received from the peer."""
-    return serialization.load_pem_public_key(pem_data, backend=default_backend())
-
-def derive_aes_key_from_exchange(private_key, peer_public_pem: bytes) -> bytes:
-    """Helper to handle the full KDF process from a received PEM public key."""
-    peer_public_key = deserialize_public_key(peer_public_pem)
-    shared_secret = derive_shared_secret(private_key, peer_public_key)
-    return kdf_derive_aes_key(shared_secret)

@@ -1,3 +1,4 @@
+# app/crypto/aes.py
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -10,7 +11,7 @@ class AESCipher:
         if len(key) != KEY_SIZE:
             raise ValueError(f"AES key must be {KEY_SIZE} bytes.")
         self.key = key
-        # Using ECB as per assignment's 'no modes' constraint.
+        # Using ECB as per assignment constraint (block cipher + no modes)
         self.cipher = Cipher(algorithms.AES(self.key), modes.ECB(), backend=default_backend())
 
     def encrypt(self, plaintext: bytes) -> bytes:

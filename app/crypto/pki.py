@@ -1,7 +1,4 @@
-"""X.509 validation: signed-by-CA, validity window, CN/SAN.""" 
-
-
-# crypto/pki.py
+# app/crypto/pki.py
 
 import os
 import datetime
@@ -43,13 +40,12 @@ def validate_certificate(cert_pem_data: bytes, expected_cn: str, trusted_ca: x50
     
     # i. Signature chain validity (Trusted CA)
     if cert.issuer != trusted_ca.subject:
-        # A simple check: if the issuer is not the CA, reject.
         raise CertificateValidationError("BAD CERT: Issuer name does not match Root CA subject (Untrusted).")
 
-    # ii. Expiry date and validity period
-    now = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
-    not_valid_before = cert.not_valid_before.replace(tzinfo=datetime.timezone.utc)
-    not_valid_after = cert.not_valid_after.replace(tzinfo=datetime.timezone.utc)
+    # ii. Expiry date and validity period (using UTC properties to avoid deprecation warnings)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    not_valid_before = cert.not_valid_before_utc
+    not_valid_after = cert.not_valid_after_utc
     
     if now < not_valid_before or now > not_valid_after:
         raise CertificateValidationError("BAD CERT: Certificate expired or not yet valid.")

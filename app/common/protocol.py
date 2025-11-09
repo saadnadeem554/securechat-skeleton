@@ -1,13 +1,13 @@
-"""Pydantic models: hello, server_hello, register, login, dh_client, dh_server, msg, receipt.""" 
-
-
-# common/protocol.py
+# app/common/protocol.py
 
 import json
+from typing import Optional
 
 class MessageType:
     HELLO = "hello"
     SERVER_HELLO = "server hello"
+    DH_CLIENT = "dh client"
+    DH_SERVER = "dh server"
     REGISTER = "register"
     LOGIN = "login"
     SUCCESS = "success"
@@ -16,24 +16,31 @@ class MessageType:
 
 class BaseMessage:
     def to_dict(self):
-        # A utility method to turn the object into a transmittable dictionary
-        return self.__dict__
+        # Filter out None values to keep the message clean
+        return {k: v for k, v in self.__dict__.items() if v is not None}
 
 class HelloMessage(BaseMessage):
-    """Format for client hello."""
-    def __init__(self, cert: str, nonce: str, dh_pub: str):
+    """Format for client hello (Certificate Exchange)."""
+    def __init__(self, cert: str, nonce: str):
         self.type = MessageType.HELLO
         self.cert = cert       # Base64 PEM certificate
         self.nonce = nonce     # Base64 nonce
-        self.dh_pub = dh_pub   # Base64 DH public key
 
 class ServerHelloMessage(BaseMessage):
-    """Format for server hello."""
-    def __init__(self, cert: str, nonce: str, dh_pub: str):
+    """Format for server hello (Certificate Exchange)."""
+    def __init__(self, cert: str, nonce: str):
         self.type = MessageType.SERVER_HELLO
         self.cert = cert
         self.nonce = nonce
-        self.dh_pub = dh_pub
+
+class KeyAgreementMessage(BaseMessage):
+    """Format for the integer-based DH Key Agreement."""
+    def __init__(self, type: str, g: int, p: int, A: Optional[int] = None, B: Optional[int] = None):
+        self.type = type
+        self.g = g  # Generator
+        self.p = p  # Prime Modulus
+        self.A = A
+        self.B = B
 
 class AuthData(BaseMessage):
     """The plaintext data for registration/login (Encrypted inside the payload)."""
